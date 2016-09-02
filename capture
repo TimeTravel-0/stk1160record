@@ -1,0 +1,168 @@
+#!/bin/sh
+
+# Name:    capture
+PROG_VERSION="0.9.8"
+# Datum:   15.03.2006
+
+# Analoge Video-Aufzeichnung von Video4Linux-TV-Karte
+
+# Benoetigt: mencoder
+# Empfohlen: GNU time
+
+# Quelle: http://www.fernmeldung.de/capture/
+
+echo "---------------------------------------------------------------"
+echo "capture $PROG_VERSION (http://www.fernmeldung.de/capture)"
+echo "Aufzeichnung von analoger Video4Linux-TV-Karte"
+echo "---------------------------------------------------------------"
+echo "Winke fuer eine erfolgreiche Aufzeichnung:"
+echo "- ntp-Daemonen u.ae. Zeitverstell-Programme beenden, da sonst"
+echo "  Sync-Probleme auftreten koennten"
+echo "- Audio-Eingang (igain) auf 70 einstellen"
+echo "- Ggf. Audio-Pegel der Quelle (z.B. DVB-Empfaenger) einstellen"
+echo "---------------------------------------------------------------"
+
+DVDx=720
+DVDy=576
+DVDxy=$DVDx"x"$DVDy
+# 5000 + 192 = 5192kbit/s = 38,1 MB/Min.
+
+HuffYUVx=768
+HuffYUVy=576
+HuffYUVxy=$HuffYUVx"x"$HuffYUVy
+# 768x576 + MP2 = 650 MB/Min.
+
+MPEG4x=576
+MPEG4y=432
+MPEG4xy=$MPEG4x"x"$MPEG4y
+MPEG4bitrate=1200
+# 1200+128=1328kbit/s=9,8 MB/Min.
+# 1500+128=1628kbit/s=12,0 MB/Min.
+# 1800+128=1928kbit/s=14,2 MB/Min.
+
+x264x=384
+x264y=288
+x264xy=$x264x"x"$x264y
+
+# Temp-Datei fuer time-Ausgabe:
+# $$ = PID
+TEMP_DATEI="/tmp/capture_time.$$.tmp"
+
+echo -n "Name der Aufzeichnung [aufzeichnung]: "
+read NAME
+
+# NAME leer (zero) ?
+if [ -z $NAME ]; then
+	NAME="aufzeichnung"
+fi
+
+# Bei Audio-Aufzeichnungsproblemen kann evtl. ein angehaengtes :forceaudio helfen
+#BEFEHL="mencoder tv:// -tv driver=v4l2:norm=pal:input=1:fps=25:audiorate=48000"
+
+BEFEHL="mencoder tv:// -tv driver=v4l2:normid=5:input=0:device=/dev/video0:chanlist=us-cable:alsa:adevice=hw.2,0:amode=2:audiorate=48000:forceaudio:immediatemode=0"
+
+echo -n "Format (d=DVD-"$DVDxy", h=HuffYUV-"$HuffYUVxy", x=x264-"$x264xy") [MPEG4-"$MPEG4xy"]: "
+read FORMAT
+
+case $FORMAT in 
+	d)	echo "Format: DVD / AC3 / "$DVDxy" (etwa 40 MB/Min.)"
+		AUFLOESUNG=$DVDxy
+		CODECS="DVD_AC3"
+		BEFEHL=$BEFEHL":width="$DVDx":height="$DVDy" -oac lavc -ovc lavc -of mpeg -mpegopts format=dvd -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=8000:vbitrate=5000:keyint=15:acodec=ac3:abitrate=192:aspect=4/3"
+		# (see mplayer homepage for encoding examples)
+		;;
+
+	h)	echo "Format: HuffYUV / MP2 / "$HuffYUVxy" (etwa 650 MB/Min.)"
+		AUFLOESUNG=$HuffYUVxy
+		CODECS="HuffYUV_MP2"
+		BEFEHL=$BEFEHL":width="$HuffYUVx":height="$HuffYUVy" -oac lavc -ovc lavc -lavcopts vcodec=huffyuv:format=422p:acodec=mp2:abitrate=224"
+		;;
+
+	x)	echo "Format: X264 / MP3 / $x264xy"
+		AUFLOESUNG=$x264xy
+		CODECS="x264_MP3"
+		BEFEHL=$BEFEHL":width="$x264x":height="$x264y" -ovc x264 -x264encopts bitrate=1000 -oac lavc -lavcopts acodec=mp2"
+		# vhq=1..4
+		;;
+
+	*)	echo "Format: MPEG4 / MP3 / $MPEG4xy / $MPEG4bitrate kbit/s (9,8 MB/Min.)"
+		AUFLOESUNG=$MPEG4xy
+		CODECS="FMP4_MP3"
+		BEFEHL=$BEFEHL":width="$MPEG4x":height="$MPEG4y" -ovc lavc -lavcopts vcodec=mpeg4:vhq:vbitrate="$MPEG4bitrate" -ffourcc XVID -oac mp3lame -lameopts cbr:br=128"
+		;;
+esac
+
+echo -n "Deinterlacing (n=nein) [ja] ? "
+read DI
+if [ "$DI" != "n" ]; then
+	echo "Deinterlacing: ja"
+	DI=".deinterlaced"
+	BEFEHL="$BEFEHL -vf pp=lb"
+else
+	echo "Deinterlacing: nein"
+	DI=""
+fi
+
+echo -n "Maximale Aufnahmedauer ([[hh:]mm:]ss) [unbegrenzt]: "
+read DAUERMAX
+if [ $DAUERMAX ]; then
+	echo "Aufnahmedauer: $DAUERMAX"
+	BEFEHL="$BEFEHL -endpos $DAUERMAX"
+else
+	echo "Aufnahmedauer: unbegrenzt"
+fi
+
+echo "--------------------------------------------------------------"
+echo "Fuehre aus: $BEFEHL"
+echo "--------------------------------------------------------------"
+echo "Die Aufzeichnung kann mit <Strg>-C korrekt beendet werden."
+echo "Eingabe-Taste druecken, um mit der Aufzeichnung zu beginnen"
+echo "<Strg>-C zum Abbruch"
+read x
+
+STARTZEIT=$(date +%Y.%m.%d_%H:%M)
+
+DATEI=$NAME"."$STARTZEIT"."$AUFLOESUNG$DI"."$CODECS
+
+BEFEHL="$BEFEHL -o $DATEI"
+
+# Audio aktivieren
+amixer -c stk1160mixer sset Line unmute cap
+
+# Wo ist GNU time ?
+TIMEBEFEHL=$(which time)
+
+if [ $TIMEBEFEHL -a -x $TIMEBEFEHL ]; then
+
+	# quiet=keine Abbruchmeldung format %e = Realsekunden -o Ausgabedatei
+	$TIMEBEFEHL -o $TEMP_DATEI --quiet --format %e $BEFEHL
+
+	DAUERsec=$(cat $TEMP_DATEI)
+	rm $TEMP_DATEI
+
+	# Loeschen aller Zeichen vom Zeilenende bis zu einem Punkt 
+	# und des Punktes selbst (also eine ganze Zahl machen):
+	DAUERsec=${DAUERsec%.*}
+
+	if [ $DAUERsec -lt 60 ]; then
+		DAUER=${DAUERsec}sec
+	else
+		DAUERmin=$[$DAUERsec/60]
+		DAUER=${DAUERmin}min
+	fi
+
+	ENDDATEI=$DATEI"."$DAUER".avi"
+else
+	$BEFEHL
+	ENDDATEI=$DATEI".avi"
+	echo
+        echo "Hinweis: Konnte die Aufnahmedauer nicht ermitteln und dem Dateinamen zufuegen, da das Programm \"time\" nicht ausfuehrbar ist (Achtung: Es wird die Programmdatei time (GNU time) benoetigt, kein Shell-interner time-Befehl; pruefen mit \"which time\")."
+	echo "Falls gewuenscht, \"time\" ausfuehrbar machen."
+        echo
+fi
+
+mv $DATEI $ENDDATEI
+
+echo "------------------------------------------------------"
+echo "Datei: $ENDDATEI"
+echo "------------------------------------------------------"
