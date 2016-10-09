@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=true
+Name=VHS Vorschau
+Comment=
+Exec=/home/regina/git/stk1160record/vlc_preview.sh
+Icon=
+Path=
+StartupNotify=false

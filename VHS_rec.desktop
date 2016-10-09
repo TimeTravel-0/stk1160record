@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=true
+Name=VHS Aufnahme
+Comment=
+Exec=/home/regina/git/stk1160record/vlc_capture.sh
+Icon=
+Path=
+StartupNotify=false
