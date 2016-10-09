@@ -1,3 +1,7 @@
+
+# Audio aktivieren
+amixer -c stk1160mixer sset Line unmute cap
+
 echo -n "Name: "
 read NAME
 
